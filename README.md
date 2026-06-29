@@ -48,13 +48,6 @@ README.md
 SECURITY.md
 ```
 
-Before publishing, update the repository URL in `index.html`:
-
-```js
-const GITHUB_REPO_URL = 'https://github.com/your-username/mind-board';
-```
-
-Replace it with your real repo URL. The Star button cannot automatically star a repository, because GitHub requires the user to choose that action. It stores a small local like count and opens the repo so the user can star it manually.
 
 ## Recommended GitHub Pages Setup
 
