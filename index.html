@@ -212,14 +212,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
   transition: border-color 0.2s ease, box-shadow 0.25s ease, transform 0.18s ease, opacity .18s;
 }
 .box:hover {
-  border-color: color-mix(in srgb, var(--card-color, var(--accent)) 70%, transparent);
+  border-color: color-mix(in srgb, var(--card-color, var(--accent)) 100%, white 25%);
   transform: translateY(-2px);
   box-shadow:
-    0 0 0 1.5px color-mix(in srgb, var(--card-color, var(--accent)) 55%, transparent),
-    0 0 18px 2px color-mix(in srgb, var(--card-color, var(--accent)) 28%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--card-color, var(--accent)) 100%, white 25%),
+    0 0 8px 1px color-mix(in srgb, var(--card-color, var(--accent)) 70%, transparent),
     0 20px 46px rgba(0,0,0,0.58),
     inset 0 1px rgba(255,255,255,0.07),
     inset 0 0 24px rgba(255,255,255,0.025);
+  filter: saturate(2.2) brightness(1.2);
 }
 .box.selected { box-shadow: 0 0 0 2px var(--accent), 0 16px 40px rgba(0,0,0,0.7); transform: translateY(-2px); }
 .box.multi-selected { box-shadow: 0 0 0 2px rgba(124,215,196,0.7), 0 16px 40px rgba(0,0,0,0.7); }
@@ -2001,31 +2002,51 @@ document.getElementById('search-clear').addEventListener('click', () => {
 function arrangeCards() {
   const b = currentBoard();
   if (!b.boxes.length) return;
+
+  const COLS = 3; // grid columns (3x3 matrix style)
+  const GAP_X = 90, GAP_Y = 70;
+
+  // Keep a stable, logical order: topological-ish (connected boxes first, in link order), then leftovers
   const indegree = Object.fromEntries(b.boxes.map(c => [c.id, 0]));
   b.connections.forEach(c => { if (c.to in indegree) indegree[c.to]++; });
-  const levels = new Map();
-  const queue = b.boxes.filter(c => indegree[c.id] === 0).map(c => [c.id, 0]);
+  const orderedIds = [];
   const seen = new Set();
+  const queue = b.boxes.filter(c => indegree[c.id] === 0).map(c => c.id);
   while (queue.length) {
-    const [id, level] = queue.shift(); if (seen.has(id)) continue;
-    seen.add(id); levels.set(id, level);
-    b.connections.filter(c => c.from === id).forEach(c => queue.push([c.to, level + 1]));
+    const id = queue.shift(); if (seen.has(id)) continue;
+    seen.add(id); orderedIds.push(id);
+    b.connections.filter(c => c.from === id).forEach(c => queue.push(c.to));
   }
-  b.boxes.filter(c => !seen.has(c.id)).forEach(c => levels.set(c.id, 0));
-  const grouped = {};
-  b.boxes.forEach(box => (grouped[levels.get(box.id)] ||= []).push(box));
-  let columnX = 180;
-  Object.keys(grouped).map(Number).sort((a, b) => a - b).forEach(level => {
-    const boxes = grouped[level];
-    let rowY = 150;
-    boxes.forEach(box => {
-      box.x = columnX;
-      box.y = rowY;
-      rowY += (box.collapsed ? 44 : Math.max(150, box.h || 200)) + 46;
-    });
-    const widest = Math.max(...boxes.map(box => Math.max(190, box.w || 270)));
-    columnX += widest + 90;
+  b.boxes.forEach(box => { if (!seen.has(box.id)) { seen.add(box.id); orderedIds.push(box.id); } });
+
+  const byId = Object.fromEntries(b.boxes.map(box => [box.id, box]));
+  const ordered = orderedIds.map(id => byId[id]).filter(Boolean);
+
+  // Compute column widths and row heights based on the actual grid cells
+  const colWidths = new Array(COLS).fill(0);
+  const rowHeights = [];
+  ordered.forEach((box, i) => {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    const w = Math.max(190, box.w || 270);
+    const h = box.collapsed ? 44 : Math.max(150, box.h || 200);
+    colWidths[col] = Math.max(colWidths[col], w);
+    rowHeights[row] = Math.max(rowHeights[row] || 0, h);
   });
+
+  // Compute x offset for each column, y offset for each row
+  const colX = [180];
+  for (let c = 1; c < COLS; c++) colX[c] = colX[c - 1] + colWidths[c - 1] + GAP_X;
+  const rowY = [150];
+  for (let r = 1; r < rowHeights.length; r++) rowY[r] = rowY[r - 1] + rowHeights[r - 1] + GAP_Y;
+
+  ordered.forEach((box, i) => {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    box.x = colX[col];
+    box.y = rowY[row];
+  });
+
   renderAll(); checkpoint(); scheduleSave(); setTimeout(fitView, 20); toast('Board arranged');
 }
 
