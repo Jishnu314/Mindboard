@@ -175,7 +175,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 /* ── Page Header (sub-board) ── */
 #pageHeader {
   position: fixed; top: 46px; left: 50%; transform: translateX(-50%);
-  z-index: 890; width: min(480px, 90vw);
+  z-index: 890; 
+  width: max-content; min-width: 280px; max-width: 90vw;
   display: none; gap: 12px; align-items: flex-start;
   background: rgba(17,23,32,0.92); border: 1px solid var(--line-strong);
   border-radius: 8px; padding: 14px 16px;
@@ -184,7 +185,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 #pageHeader.show { display: flex; }
 #pageHeader .ph-main { flex: 1; min-width: 0; }
 #pageHeader .ph-title { width: 100%; background: transparent; border: none; outline: none; color: #e8e8e8; font-size: 15px; font-weight: 700; }
-#pageHeader .ph-desc { width: 100%; background: transparent; border: none; outline: none; resize: none; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 4px; }
+#pageHeader .ph-desc { width: 100%; background: transparent; border: none; outline: none; resize: none; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 4px; max-height: 160px; overflow-y: hidden; }
 #pageHeader .ph-title::placeholder, #pageHeader .ph-desc::placeholder { color: var(--faint); }
 .ph-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ph-img-thumb { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; border: 1px solid var(--line); cursor: zoom-in; }
@@ -195,6 +196,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
   transition: background 0.12s, color 0.12s;
 }
 .ph-close:hover { background: rgba(200,50,50,0.12); color: var(--danger); }
+.ph-readmore {
+  font-size: 10.5px; font-weight: 700; color: var(--accent);
+  background: none; border: none; cursor: pointer; padding: 2px 0; margin-top: 2px;
+}
+.ph-readmore:hover { text-decoration: underline; }
 /* ── BOXES ── */
 .box {
   position: absolute; width: 270px; min-width: 190px; min-height: 120px;
@@ -250,7 +256,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .box-body { padding: 12px 16px 8px 18px; user-select: text; }
 .box-title-full { font-size: 15px; line-height: 1.45; font-weight: 690; letter-spacing: -.01em; color: var(--text); outline: none; min-height: 24px; margin-bottom: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .box-title-full:empty::before { content: 'Untitled thought'; color: var(--faint); pointer-events: none; }
-.box-desc-area { font-size: 12px; color: #8b95a2; line-height: 1.6; outline: none; min-height: 20px; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text; max-height: 112px; overflow-y: auto; }
+.box-desc-area { font-size: 12px; color: #8b95a2; line-height: 1.6; outline: none; min-height: 20px; overflow-wrap: anywhere; white-space: pre-wrap; cursor: text; max-height: 112px; overflow-y: hidden; }
 .box-desc-area:empty::before { content: attr(data-ph); color: var(--faint); pointer-events: none; }
 .box-images { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .box-img-thumb { width: 52px; height: 52px; border-radius: 7px; object-fit: cover; border: 1px solid var(--line); cursor: zoom-in; }
@@ -1206,7 +1212,43 @@ function renderPageHeader() {
   document.getElementById('phTitle').value = entry.box.title || '';
   const phd = document.getElementById('phDesc');
   phd.value = entry.box.desc || '';
+  phd.style.maxHeight = '160px';
   autoH(phd);
+
+  // Read more / less toggle
+  let moreBtn = document.getElementById('phReadMore');
+  if (!moreBtn) {
+    moreBtn = document.createElement('button');
+    moreBtn.id = 'phReadMore';
+    moreBtn.className = 'ph-readmore';
+    phd.insertAdjacentElement('afterend', moreBtn);
+  }
+  requestAnimationFrame(() => {
+    const isOverflowing = phd.scrollHeight > 162;
+    moreBtn.style.display = isOverflowing ? 'block' : 'none';
+    moreBtn.textContent = 'Read more';
+    moreBtn.onclick = () => {
+      const expanded = phd.style.maxHeight === 'none';
+      phd.style.maxHeight = expanded ? '160px' : 'none';
+      moreBtn.textContent = expanded ? 'Read more' : 'Show less';
+    };
+  });
+  function measureTextWidth(text, font) {
+    const canvas = measureTextWidth._c || (measureTextWidth._c = document.createElement('canvas'));
+    const ctx = canvas.getContext('2d');
+    ctx.font = font;
+    return ctx.measureText(text || '').width;
+  }
+
+  function autoSizeHeader(entry) {
+    const ph = document.getElementById('pageHeader');
+    const title = entry.box.title || '';
+    const titleWidth = measureTextWidth(title, '700 15px -apple-system, sans-serif');
+    // padding (16*2) + close button (28) + gap (12) + a little breathing room
+    const needed = titleWidth + 32 + 28 + 12 + 24;
+    const target = Math.max(280, Math.min(needed, window.innerWidth * 0.9));
+    ph.style.width = target + 'px';
+  }
 
   // ── Images ──
   let imgWrap = document.getElementById('phImages');
@@ -1227,11 +1269,13 @@ document.getElementById('phTitle').addEventListener('input', () => {
   const b = currentEntry().box; if (!b) return;
   b.title = document.getElementById('phTitle').value;
   renderBreadcrumb(); scheduleSave();
+  autoSizeHeader(currentEntry());
 });
 document.getElementById('phDesc').addEventListener('input', () => {
   const el = document.getElementById('phDesc');
   const b = currentEntry().box; if (!b) return;
   b.desc = el.value; autoH(el); scheduleSave();
+  autoSizeHeader(currentEntry());
 });
 document.getElementById('phClose').addEventListener('click', () => {
   if (navStack.length > 1) {
