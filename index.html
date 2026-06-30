@@ -179,7 +179,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 #pageHeader .ph-title { width: 100%; background: transparent; border: none; outline: none; color: #e8e8e8; font-size: 15px; font-weight: 700; }
 #pageHeader .ph-desc { width: 100%; background: transparent; border: none; outline: none; resize: none; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.6; margin-top: 4px; }
 #pageHeader .ph-title::placeholder, #pageHeader .ph-desc::placeholder { color: var(--faint); }
-
+.ph-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ph-img-thumb { width: 44px; height: 44px; border-radius: 7px; object-fit: cover; border: 1px solid var(--line); cursor: zoom-in; }
+.ph-close {
+  flex-shrink: 0; width: 28px; height: 28px; border: none; border-radius: 8px;
+  background: var(--surface-3); color: var(--muted); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 13px;
+  transition: background 0.12s, color 0.12s;
+}
+.ph-close:hover { background: rgba(200,50,50,0.12); color: var(--danger); }
 /* ── BOXES ── */
 .box {
   position: absolute; width: 270px; min-width: 190px; min-height: 120px;
@@ -242,16 +250,17 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
 .box-foot { display: flex; align-items: center; justify-content: space-between; margin: 3px 16px 0 18px; padding: 9px 0 12px; border-top: 1px solid var(--line); }
 .box-count { font-size: 10px; color: #697382; }
 .box-open { font-size: 10px; color: rgba(125,252,110,0.45); font-weight: 600; cursor: pointer; padding: 3px 8px; background: rgba(125,252,110,0.06); border-radius: 6px; border: 1px solid rgba(125,252,110,0.1); opacity: 0; transition: opacity 0.15s, background 0.15s; }
-.box:hover .box-open { opacity: 1; }
+.box:hover .box-open, .box.selected .box-open { opacity: 1; }
 .box-open:hover { background: rgba(125,252,110,0.14); color: var(--accent); }
 
-/* ── NOTES ── */
+
 /* ── NOTES ── */
 .note {
   position: absolute; background: none; border: none;
   border-radius: 0; padding: 2px 6px 4px 14px;
   cursor: grab; box-shadow: none;
   transition: opacity .18s;
+  min-width: 160px; width: max-content; max-width: 320px;
 }
 .note-accent {
   position: absolute; left: 0; top: 4px; bottom: 6px;
@@ -595,7 +604,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
   <div class="ph-main">
     <input class="ph-title" id="phTitle" placeholder="Workspace name…">
     <textarea class="ph-desc" id="phDesc" rows="1" placeholder="Add a description…"></textarea>
+    <div class="ph-images" id="phImages"></div>
   </div>
+  <button class="ph-close" id="phClose" title="Close workspace (Esc)" aria-label="Close workspace">✕</button>
 </div>
 
 <div id="search-wrap">
@@ -637,6 +648,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, [contentedita
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>
     <span>Delete</span>
   </button>
+  <button class="t-btn" id="btn-select-mode" title="Multi-select mode" aria-label="Toggle multi-select">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+  <span>Select</span>
+</button>
 </div>
 
 <div id="zoom-badge">100%</div>
@@ -765,6 +780,7 @@ let spaceDown = false;
 let pendingImageBoxId = null;
 let textEditorBoxId = null;
 let zTop = 10;
+let selectMode = false;
 
 // Undo/Redo
 let history = [];
@@ -851,7 +867,9 @@ function fitView() {
 viewport.addEventListener('mousedown', e => {
   if (e.target.closest('.box, .note, .port, button, input, textarea, [contenteditable]')) return;
   if (e.target.id === 'connLayer' || e.target === connLayer) {
-    clearSel(); closeAllPopups(); return;
+    clearSel(); closeAllPopups();
+    if (selectMode) { selectMode = false; document.getElementById('btn-select-mode').classList.remove('active'); }
+    return;
   }
   if (e.button === 1 || spaceDown) { startPan(e.clientX, e.clientY); e.preventDefault(); return; }
   if (e.shiftKey) {
@@ -862,6 +880,7 @@ viewport.addEventListener('mousedown', e => {
     e.preventDefault(); return;
   }
   clearSel(); closeAllPopups(); startPan(e.clientX, e.clientY);
+  if (selectMode) { selectMode = false; document.getElementById('btn-select-mode').classList.remove('active'); }
   e.preventDefault();
 });
 
@@ -903,11 +922,29 @@ document.addEventListener('mouseup', e => {
 });
 
 document.addEventListener('touchmove', e => {
-  if (!isPanning || e.touches.length !== 1) return;
-  const t = e.touches[0]; doPan(t.clientX, t.clientY);
+  if (isPanning && e.touches.length === 1) {
+    const t = e.touches[0]; doPan(t.clientX, t.clientY); return;
+  }
+  if (connecting && e.touches.length === 1) {
+    const t = e.touches[0];
+    const wp = toWorld(t.clientX, t.clientY);
+    drawConnPreview(connecting.startPt, wp);
+  }
 }, { passive: false });
 
-document.addEventListener('touchend', () => { if (isPanning) endPan(); });
+document.addEventListener('touchend', e => {
+  if (isPanning) { endPan(); scheduleSave(); }
+  if (connecting) {
+    const t = e.changedTouches && e.changedTouches[0];
+    if (t) {
+      const target = document.elementFromPoint(t.clientX, t.clientY)?.closest('.box');
+      if (target && target.dataset.id !== connecting.box.id) {
+        addConnection(connecting.box.id, target.dataset.id, connecting.side, 'auto');
+      }
+    }
+    cancelConn();
+  }
+});
 
 function finishSelBox(cx, cy) {
   const wp = toWorld(cx, cy);
@@ -968,7 +1005,7 @@ viewport.addEventListener('drop', e => {
     if (d < nearestDist) { nearestDist = d; nearest = box; }
   });
   if (nearest && nearestDist < 300) {
-    readImage(file, url => { nearest.images = [...(nearest.images || []), url]; renderBox(nearest); checkpoint(); scheduleSave(); toast('Image attached to box'); });
+    readImage(file, url => { nearest.images = [...(nearest.images || []), url]; world.appendChild(renderBox(nearest)); drawConnections(); checkpoint(); scheduleSave(); toast('Image attached to box'); });
   } else {
     toast('Drop near a box to attach an image');
   }
@@ -1138,7 +1175,6 @@ function renderAll() {
 /* ── Breadcrumb ── */
 function renderBreadcrumb() {
   const bc = document.getElementById('breadcrumb-trail');
-  // Remove old crumbs from the trail only.
   bc.querySelectorAll('.crumb, .sep').forEach(e => e.remove());
   navStack.forEach((entry, i) => {
     if (i > 0) {
@@ -1147,7 +1183,8 @@ function renderBreadcrumb() {
     const c = document.createElement('span');
     const last = i === navStack.length - 1;
     c.className = 'crumb' + (last ? ' cur' : '');
-    c.textContent = i === 0 ? 'Root' : (entry.box?.title || 'Untitled');
+    // FIX: if this is the topmost entry but it's actually a box (standalone export), show its title
+    c.textContent = (i === 0 && !entry.box) ? 'Root' : (entry.box?.title || 'Untitled');
     if (!last) c.addEventListener('click', () => { navStack = navStack.slice(0, i + 1); selected = null; renderAll(); });
     bc.appendChild(c);
   });
@@ -1163,6 +1200,20 @@ function renderPageHeader() {
   const phd = document.getElementById('phDesc');
   phd.value = entry.box.desc || '';
   autoH(phd);
+
+  // ── Images ──
+  let imgWrap = document.getElementById('phImages');
+  if (!imgWrap) {
+    imgWrap = document.createElement('div');
+    imgWrap.id = 'phImages';
+    imgWrap.className = 'ph-images';
+    document.querySelector('#pageHeader .ph-main').appendChild(imgWrap);
+  }
+  const images = entry.box.images || [];
+  imgWrap.innerHTML = images.map(src => `<img class="ph-img-thumb" src="${src}" alt="">`).join('');
+  imgWrap.querySelectorAll('.ph-img-thumb').forEach((img, i) => {
+    img.addEventListener('click', () => openLB(images[i]));
+  });
 }
 
 document.getElementById('phTitle').addEventListener('input', () => {
@@ -1175,6 +1226,13 @@ document.getElementById('phDesc').addEventListener('input', () => {
   const b = currentEntry().box; if (!b) return;
   b.desc = el.value; autoH(el); scheduleSave();
 });
+document.getElementById('phClose').addEventListener('click', () => {
+  if (navStack.length > 1) {
+    navStack.pop();
+    selected = null;
+    renderAll();
+  }
+});
 
 /* ── Empty state ── */
 function updateEmpty() {
@@ -1182,7 +1240,22 @@ function updateEmpty() {
   const isEmpty = !b.notes.length && !b.boxes.length;
   document.getElementById('empty').classList.toggle('gone', !isEmpty);
 }
-
+function addLongPress(el, getXY, cb) {
+  let timer = null, moved = false, startX = 0, startY = 0;
+  el.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    moved = false;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    timer = setTimeout(() => { if (!moved) cb(startX, startY); }, 480);
+  }, { passive: true });
+  el.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - startX) > 8 || Math.abs(t.clientY - startY) > 8) {
+      moved = true; clearTimeout(timer); closeCtxMenu();
+    }
+  }, { passive: true });
+  el.addEventListener('touchend', () => clearTimeout(timer), { passive: true });
+}
 /* ============================================================
    NOTES
    ============================================================ */
@@ -1231,7 +1304,7 @@ function renderNote(data) {
 
   el.addEventListener('mousedown', e => {
     if (e.target === ta || e.target === da) return;
-    if (e.shiftKey) { toggleMulti(data.id, el); e.stopPropagation(); return; }
+    if (e.shiftKey || selectMode) { toggleMulti(data.id, el); e.stopPropagation(); return; }
     pickEl(el, 'note', data); el.style.zIndex = ++zTop;
   });
 
@@ -1239,6 +1312,14 @@ function renderNote(data) {
     e.preventDefault(); e.stopPropagation();
     pickEl(el, 'note', data);
     showCtxMenu(e.clientX, e.clientY, [
+      { label: '✎ Edit text', action: () => openTextEditor(data) },
+      'sep',
+      { label: '✕ Delete comment', danger: true, action: () => { currentBoard().notes = currentBoard().notes.filter(n => n !== data); el.remove(); updateEmpty(); checkpoint(); scheduleSave(); drawMinimap(); } }
+    ]);
+  });
+  addLongPress(el, null, (x, y) => {
+    pickEl(el, 'note', data);
+    showCtxMenu(x, y, [
       { label: '✎ Edit text', action: () => openTextEditor(data) },
       'sep',
       { label: '✕ Delete comment', danger: true, action: () => { currentBoard().notes = currentBoard().notes.filter(n => n !== data); el.remove(); updateEmpty(); checkpoint(); scheduleSave(); drawMinimap(); } }
@@ -1361,16 +1442,19 @@ function renderBox(box) {
     img.addEventListener('click', e => { e.stopPropagation(); openLB((box.images || [])[i]); });
   });
 
+ 
   // Ports
   el.querySelectorAll('.port').forEach(port => {
-    port.addEventListener('mousedown', e => {
+    const startConn = e => {
       e.stopPropagation(); e.preventDefault();
       const side = port.dataset.side;
       const pt = portPoint(box, side, el);
       connecting = { box, side, startPt: pt };
       document.getElementById('conn-preview').style.display = 'block';
       viewport.classList.add('connecting');
-    });
+    };
+    port.addEventListener('mousedown', startConn);
+    port.addEventListener('touchstart', startConn, { passive: false });
   });
 
   // Open workspace
@@ -1387,7 +1471,7 @@ function renderBox(box) {
   // Select / multi-select
   el.addEventListener('mousedown', e => {
     if (e.target.closest('input,[contenteditable],button,.port,.box-img-thumb')) return;
-    if (e.shiftKey) { toggleMulti(box.id, el); e.stopPropagation(); return; }
+    if (e.shiftKey || selectMode) { toggleMulti(box.id, el); e.stopPropagation(); return; }
     pickEl(el, 'box', box); el.style.zIndex = ++zTop;
   });
 
@@ -1396,6 +1480,18 @@ function renderBox(box) {
     e.preventDefault(); e.stopPropagation();
     pickEl(el, 'box', box);
     showCtxMenu(e.clientX, e.clientY, [
+      { label: '↗ Open workspace', action: () => drillInto(box) },
+      { label: '✎ Edit text', action: () => openTextEditor(box) },
+      { label: '⊞ Attach image', action: () => { pendingImageBoxId = box.id; document.getElementById('file-image').click(); } },
+      { label: '⊕ Duplicate', action: () => duplicateBox(box) },
+      { label: '⬇ Download this box', action: () => exportBox(box) },
+      'sep',
+      { label: '✕ Delete box', danger: true, action: () => { deleteBox(box); renderAll(); checkpoint(); scheduleSave(); } }
+    ]);
+  });
+  addLongPress(el, null, (x, y) => {
+    pickEl(el, 'box', box);
+    showCtxMenu(x, y, [
       { label: '↗ Open workspace', action: () => drillInto(box) },
       { label: '✎ Edit text', action: () => openTextEditor(box) },
       { label: '⊞ Attach image', action: () => { pendingImageBoxId = box.id; document.getElementById('file-image').click(); } },
@@ -1416,6 +1512,19 @@ function renderBox(box) {
     headTitle, bodyTitle, descEl,
     ...el.querySelectorAll('.port, button')
   );
+
+  // Auto-grow to fit content (prevents images/long text overflowing the box border)
+  if (!box.collapsed) {
+    requestAnimationFrame(() => {
+      if (!document.body.contains(el)) return;
+      const needed = el.scrollHeight;
+      if (needed > el.offsetHeight) {
+        box.h = needed;
+        el.style.height = needed + 'px';
+        drawConnections(); scheduleSave();
+      }
+    });
+  }
 
   // Resize observer
   const ro = new ResizeObserver(() => {
@@ -1633,12 +1742,16 @@ function openColorPop(anchor, box, boxEl) {
   const r = anchor.getBoundingClientRect();
   pop.style.left = Math.min(r.left, innerWidth - 148) + 'px';
   pop.style.top = (r.bottom + 8) + 'px';
-  setTimeout(() => document.addEventListener('mousedown', closeCPOnOut), 0);
+  setTimeout(() => {
+    document.addEventListener('mousedown', closeCPOnOut);
+    document.addEventListener('touchstart', closeCPOnOut, { passive: true });
+  }, 0);
 }
 function closeCPOnOut(e) { if (!document.getElementById('color-pop').contains(e.target)) closeColorPop(); }
 function closeColorPop() {
   document.getElementById('color-pop').style.display = 'none';
   document.removeEventListener('mousedown', closeCPOnOut);
+  document.removeEventListener('touchstart', closeCPOnOut);
 }
 
 /* ============================================================
@@ -1661,10 +1774,17 @@ function showCtxMenu(cx, cy, items) {
   const mw = ctxMenu.offsetWidth, mh = ctxMenu.offsetHeight;
   ctxMenu.style.left = Math.min(cx, innerWidth - mw - 8) + 'px';
   ctxMenu.style.top  = Math.min(cy, innerHeight - mh - 8) + 'px';
-  setTimeout(() => document.addEventListener('mousedown', closeCtxOnOut), 0);
+  setTimeout(() => {
+    document.addEventListener('mousedown', closeCtxOnOut);
+    document.addEventListener('touchstart', closeCtxOnOut, { passive: true });
+  }, 0);
 }
 function closeCtxOnOut(e) { if (!ctxMenu.contains(e.target)) closeCtxMenu(); }
-function closeCtxMenu() { ctxMenu.classList.remove('show'); document.removeEventListener('mousedown', closeCtxOnOut); }
+function closeCtxMenu() {
+  ctxMenu.classList.remove('show');
+  document.removeEventListener('mousedown', closeCtxOnOut);
+  document.removeEventListener('touchstart', closeCtxOnOut);
+}
 
 /* ============================================================
    MINIMAP (DOM-based)
@@ -1925,8 +2045,10 @@ function exportBoard() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `mindboard-${new Date().toISOString().slice(0,10)}.html`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1000);
   toast('Full board exported as HTML');
 }
 
@@ -1942,8 +2064,10 @@ function exportJson() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `mindboard-${new Date().toISOString().slice(0,10)}.json`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1000);
   toast('Board exported as JSON');
 }
 
@@ -1996,8 +2120,10 @@ function exportBox(box) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `${(box.title || 'box').replace(/\s+/g, '-').toLowerCase()}-mindboard.html`;
+  a.style.display = 'none';
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 1000);
   toast(`"${box.title || 'Box'}" exported as HTML`);
 }
 
@@ -2177,6 +2303,13 @@ function deleteSelected() {
    ============================================================ */
 document.getElementById('btn-note').addEventListener('click', newNote);
 document.getElementById('btn-box').addEventListener('click', newBox);
+
+document.getElementById('btn-select-mode').addEventListener('click', () => {
+  selectMode = !selectMode;
+  document.getElementById('btn-select-mode').classList.toggle('active', selectMode);
+  toast(selectMode ? 'Tap items to multi-select' : 'Select mode off');
+});
+
 document.getElementById('btn-undo').addEventListener('click', undo);
 document.getElementById('btn-redo').addEventListener('click', redo);
 document.getElementById('btn-arrange').addEventListener('click', arrangeCards);
@@ -2214,7 +2347,7 @@ document.getElementById('file-image').addEventListener('change', e => {
   if (box) {
     readImage(file, url => {
       box.images = [...(box.images || []), url];
-      renderBox(box); checkpoint(); scheduleSave(); toast('Image attached');
+      world.appendChild(renderBox(box)); drawConnections(); checkpoint(); scheduleSave(); toast('Image attached');
     });
   }
   pendingImageBoxId = null; e.target.value = '';
@@ -2255,6 +2388,13 @@ document.addEventListener('mousedown', e => {
     document.getElementById('template-picker').classList.remove('open');
   }
 }, true);
+
+document.addEventListener('touchstart', e => {
+  if (!e.target.closest('#conn-popup') && !e.target.closest('.conn-path')) closeConnPopup();
+  if (!e.target.closest('#template-picker') && !e.target.closest('#btn-template')) {
+    document.getElementById('template-picker').classList.remove('open');
+  }
+}, { capture: true, passive: true });
 
 /* ============================================================
    TOAST
