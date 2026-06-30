@@ -30,8 +30,15 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
 button, input, textarea { font: inherit; color: inherit; }
-button:focus-visible, input:focus-visible, textarea:focus-visible, [contenteditable]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
+button:focus-visible, input:focus-visible, textarea:focus-visible, [contenteditable]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.box-title-full:focus-visible,
+.box-desc-area:focus-visible,
+.n-title:focus-visible,
+.n-desc:focus-visible {
+  outline: none;
+}
 /* ── Viewport ── */
 #viewport {
   position: fixed; inset: 0; cursor: grab; user-select: none; overflow: hidden;
@@ -1293,6 +1300,8 @@ function renderNote(data) {
         el.remove(); currentBoard().notes = currentBoard().notes.filter(n => n !== data);
         if (selected?.ref === data) { selected = null; }
         updateEmpty(); scheduleSave(); drawMinimap();
+      } else {
+        checkpoint();
       }
     }, 220));
   });
@@ -1367,7 +1376,16 @@ function newBox() {
   updateEmpty(); checkpoint(); scheduleSave(); drawMinimap();
   requestAnimationFrame(() => el.querySelector('.box-title-full').focus());
 }
-
+function autoGrowBox(box, el) {
+  if (box.collapsed) return;
+  const needed = el.scrollHeight;
+  if (needed !== box.h) {
+    box.h = Math.max(150, needed);
+    el.style.height = box.h + 'px';
+    drawConnections();
+    scheduleSave();
+  }
+}
 function renderBox(box) {
   const old = world.querySelector(`.box[data-id="${box.id}"]`);
   if (old) old.remove();
@@ -1413,15 +1431,21 @@ function renderBox(box) {
     bodyTitle.textContent = headTitle.value;
     renderBreadcrumb(); scheduleSave();
   });
+  headTitle.addEventListener('blur', () => checkpoint());
+  headTitle.addEventListener('mousedown', e => e.stopPropagation());
   headTitle.addEventListener('mousedown', e => e.stopPropagation());
   bodyTitle.addEventListener('input', () => {
     box.title = bodyTitle.innerText.replace(/\n$/, '');
     headTitle.value = box.title; scheduleSave();
+    autoGrowBox(box, el);          
   });
+  bodyTitle.addEventListener('blur', () => checkpoint());
 
   const descEl = el.querySelector('.box-desc-area');
-  descEl.addEventListener('input', () => { box.desc = descEl.innerText.replace(/\n$/, ''); scheduleSave(); });
-
+  descEl.addEventListener('input', () => { box.desc = descEl.innerText.replace(/\n$/, '');
+    autoGrowBox(box, el);
+    scheduleSave(); });
+  descEl.addEventListener('blur', () => checkpoint());
   // Tools
   el.querySelector('[data-action="text"]').addEventListener('click', e => { e.stopPropagation(); openTextEditor(box); });
   el.querySelector('[data-action="image"]').addEventListener('click', e => { e.stopPropagation(); pendingImageBoxId = box.id; document.getElementById('file-image').click(); });
